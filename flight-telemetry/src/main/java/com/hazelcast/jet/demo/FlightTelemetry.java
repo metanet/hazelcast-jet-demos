@@ -1,9 +1,6 @@
 package com.hazelcast.jet.demo;
 
 import com.hazelcast.jet.IMapJet;
-import com.hazelcast.jet.Jet;
-import com.hazelcast.jet.JetInstance;
-import com.hazelcast.jet.Job;
 import com.hazelcast.jet.datamodel.TimestampedEntry;
 import com.hazelcast.jet.demo.Aircraft.VerticalDirection;
 import com.hazelcast.jet.demo.types.WakeTurbulanceCategory;
@@ -14,6 +11,13 @@ import com.hazelcast.jet.pipeline.SlidingWindowDef;
 import com.hazelcast.jet.pipeline.StreamStage;
 import com.hazelcast.jet.pipeline.WindowDefinition;
 import com.hazelcast.map.listener.EntryAddedListener;
+import org.python.core.PyFloat;
+import org.python.core.PyInteger;
+import org.python.core.PyList;
+import org.python.core.PyString;
+import org.python.core.PyTuple;
+import org.python.modules.cPickle;
+
 import java.io.BufferedOutputStream;
 import java.net.Socket;
 import java.nio.ByteBuffer;
@@ -21,12 +25,6 @@ import java.time.Instant;
 import java.util.Map.Entry;
 import java.util.SortedMap;
 import java.util.function.Consumer;
-import org.python.core.PyFloat;
-import org.python.core.PyInteger;
-import org.python.core.PyList;
-import org.python.core.PyString;
-import org.python.core.PyTuple;
-import org.python.modules.cPickle;
 
 import static com.hazelcast.jet.Util.entry;
 import static com.hazelcast.jet.aggregate.AggregateOperations.allOf;
@@ -140,29 +138,10 @@ public class FlightTelemetry {
     private static final String TAKE_OFF_MAP = "takeOffMap";
     private static final String LANDING_MAP = "landingMap";
 
-    static {
-        System.setProperty("hazelcast.logging.type", "log4j");
-    }
-
-    public static void main(String[] args) {
-        JetInstance jet = Jet.newJetInstance();
-
-        Pipeline pipeline = buildPipeline();
-        addListener(jet.getMap(TAKE_OFF_MAP), a -> System.out.println("New aircraft taking off: " + a));
-        addListener(jet.getMap(LANDING_MAP), a -> System.out.println("New aircraft landing " + a));
-
-        try {
-            Job job = jet.newJob(pipeline);
-            job.join();
-        } finally {
-            Jet.shutdownAll();
-        }
-    }
-
     /**
      * Builds and returns the Pipeline which represents the actual computation.
      */
-    private static Pipeline buildPipeline() {
+    public static Pipeline buildPipeline() {
         Pipeline p = Pipeline.create();
 
         SlidingWindowDef slidingWindow = WindowDefinition.sliding(60_000, 30_000);
