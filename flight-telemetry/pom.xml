@@ -32,6 +32,11 @@
                     <descriptorRefs>
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                     </descriptorRefs>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.hazelcast.jet.demo.Bootstrap</mainClass>
+                        </manifest>
+                    </archive>
                 </configuration>
                 <executions>
                     <execution>
@@ -48,7 +53,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>1.6.0</version>
                 <configuration>
-                    <mainClass>com.hazelcast.jet.demo.FlightTelemetry</mainClass>
+                    <mainClass>com.hazelcast.jet.demo.Bootstrap</mainClass>
                 </configuration>
             </plugin>
         </plugins>

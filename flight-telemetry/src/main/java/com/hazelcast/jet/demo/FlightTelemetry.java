@@ -1,6 +1,11 @@
 package com.hazelcast.jet.demo;
 
+import com.hazelcast.config.MaxSizeConfig;
 import com.hazelcast.jet.IMapJet;
+import com.hazelcast.jet.JetInstance;
+import com.hazelcast.jet.config.JetConfig;
+import com.hazelcast.jet.config.JobConfig;
+import com.hazelcast.jet.config.ProcessingGuarantee;
 import com.hazelcast.jet.datamodel.TimestampedEntry;
 import com.hazelcast.jet.demo.Aircraft.VerticalDirection;
 import com.hazelcast.jet.demo.types.WakeTurbulanceCategory;
@@ -8,6 +13,8 @@ import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.Sink;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SlidingWindowDef;
+import com.hazelcast.jet.pipeline.Sources;
+import com.hazelcast.jet.pipeline.StreamSource;
 import com.hazelcast.jet.pipeline.StreamStage;
 import com.hazelcast.jet.pipeline.WindowDefinition;
 import com.hazelcast.map.listener.EntryAddedListener;
@@ -41,7 +48,6 @@ import static com.hazelcast.jet.demo.Constants.heavyWTCDescendAltitudeToNoiseDb;
 import static com.hazelcast.jet.demo.Constants.mediumWTCClimbingAltitudeToNoiseDb;
 import static com.hazelcast.jet.demo.Constants.mediumWTCDescendAltitudeToNoiseDb;
 import static com.hazelcast.jet.demo.Constants.typeToLTOCycyleC02Emission;
-import static com.hazelcast.jet.demo.FlightDataSource.streamAircraft;
 import static com.hazelcast.jet.demo.types.WakeTurbulanceCategory.HEAVY;
 import static com.hazelcast.jet.demo.util.Util.inAtlanta;
 import static com.hazelcast.jet.demo.util.Util.inFrankfurt;
@@ -53,6 +59,7 @@ import static com.hazelcast.jet.demo.util.Util.inTokyo;
 import static com.hazelcast.jet.function.DistributedComparator.comparingInt;
 import static com.hazelcast.jet.impl.util.Util.uncheckCall;
 import static com.hazelcast.jet.impl.util.Util.uncheckRun;
+import static com.hazelcast.jet.pipeline.JournalInitialPosition.START_FROM_OLDEST;
 import static java.util.Collections.emptySortedMap;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -84,7 +91,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  *                                                            │
  *                                                            v
  *                                           ┌─────────────────────────────────┐
- *                                           │Filter Aircraft  in Low Altitudes│
+ *                                           │Filter Aircraft in Low Altitudes │
  *                                           └────────────────┬────────────────┘
  *                                                            │
  *                                                            v
@@ -134,24 +141,49 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  */
 public class FlightTelemetry {
 
-    private static final String SOURCE_URL = "https://public-api.adsbexchange.com/VirtualRadar/AircraftList.json";
+    static final String SOURCE_MAP = "aircraftMovements";
     private static final String TAKE_OFF_MAP = "takeOffMap";
     private static final String LANDING_MAP = "landingMap";
+    private static final String JOB_NAME = "flightTelemetry";
+
+    public static JetConfig buildJetConfig() {
+        JetConfig config = new JetConfig();
+        config.getHazelcastConfig()
+                .getMapEventJournalConfig(FlightTelemetry.SOURCE_MAP)
+                .setCapacity(100_000)
+                .setEnabled(true);
+
+        MaxSizeConfig maxSizeConfig = config.getHazelcastConfig().getMapConfig(SOURCE_MAP).getMaxSizeConfig();
+        maxSizeConfig.setSize(10000).setMaxSizePolicy(MaxSizeConfig.MaxSizePolicy.PER_NODE);
+
+        return config;
+    }
+
+    public static JobConfig buildJobConfig() {
+        JobConfig config = new JobConfig();
+        config.setName(JOB_NAME).setProcessingGuarantee(ProcessingGuarantee.EXACTLY_ONCE);
+
+        return config;
+    }
 
     /**
      * Builds and returns the Pipeline which represents the actual computation.
      */
-    public static Pipeline buildPipeline() {
+    public static Pipeline buildPipeline(JetInstance jet) {
         Pipeline p = Pipeline.create();
 
         SlidingWindowDef slidingWindow = WindowDefinition.sliding(60_000, 30_000);
+
+        StreamSource<Entry<Long, Aircraft>> aircraftSource = Sources.mapJournal(SOURCE_MAP, START_FROM_OLDEST);
+
         // Filter aircrafts whose altitude less then 3000ft, calculate linear trend of their altitudes
         // and assign vertical directions to the aircrafts.
         StreamStage<TimestampedEntry<Long, Aircraft>> flights = p
-                .drawFrom(streamAircraft(SOURCE_URL, 10000))
-                .addTimestamps(Aircraft::getPosTime, SECONDS.toMillis(15))
+                .drawFrom(aircraftSource)
+                .map(Entry::getValue)
                 .filter(a -> !a.isGnd() && a.getAlt() > 0 && a.getAlt() < 3000)
                 .map(FlightTelemetry::assignAirport)
+                .addTimestamps(Aircraft::getPosTime, SECONDS.toMillis(15))
                 .window(slidingWindow)
                 .groupingKey(Aircraft::getId)
                 .aggregate(
@@ -199,6 +231,10 @@ public class FlightTelemetry {
 
         // Drain all results to the Graphite sink
         p.drainTo(graphiteSink, co2Emission, maxNoise, landingFlights, takingOffFlights);
+
+        addListener(jet.getMap(TAKE_OFF_MAP), a -> System.out.println("New aircraft taking off: " + a));
+        addListener(jet.getMap(LANDING_MAP), a -> System.out.println("New aircraft landing " + a));
+
         return p;
     }
 
