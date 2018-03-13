@@ -4,6 +4,7 @@ import com.hazelcast.jet.JetInstance;
 import com.hazelcast.jet.Job;
 import com.hazelcast.jet.config.JobConfig;
 import com.hazelcast.jet.pipeline.Pipeline;
+import org.apache.log4j.Logger;
 import org.python.apache.commons.compress.utils.Charsets;
 
 import java.io.BufferedReader;
@@ -11,6 +12,9 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 
 public class JobConsole implements Runnable {
+
+    private static final Logger LOGGER = Logger.getLogger(JobConsole.class);
+
 
     private final BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, Charsets.UTF_8));
 
@@ -20,7 +24,7 @@ public class JobConsole implements Runnable {
 
     private final Pipeline pipeline;
 
-    private Job job;
+    private volatile Job job;
 
     JobConsole(JetInstance jet, Pipeline pipeline, JobConfig jobConfig) {
         this.jet = jet;
@@ -33,6 +37,7 @@ public class JobConsole implements Runnable {
 
     @Override
     public void run() {
+        LOGGER.info("Job console has started.");
         String command;
         while ((command = readCommand()) != null) {
             switch (command) {
@@ -51,10 +56,14 @@ public class JobConsole implements Runnable {
                 case "restart":
                     restartJob();
                     break;
+                case "delete":
+                    deleteJob();
+                    break;
                 case "":
                     break;
                 default:
-                    System.err.println("INVALID COMMAND: " + command);
+                    LOGGER.error("INVALID COMMAND: " + command
+                            + ". VALID COMMANDS: submit|get|status|cancel|restart|delete");
             }
         }
     }
@@ -63,7 +72,7 @@ public class JobConsole implements Runnable {
         try {
             return reader.readLine().trim().toLowerCase();
         } catch (IOException e) {
-            e.printStackTrace();
+            LOGGER.error("Error while reading command", e);
             return null;
         }
     }
@@ -72,7 +81,7 @@ public class JobConsole implements Runnable {
         if (job == null) {
             job = jet.newJob(pipeline, jobConfig);
         } else {
-            System.err.println("JOB ALREADY SUBMITTED");
+            LOGGER.error("There is already a job reference.");
         }
     }
 
@@ -80,44 +89,54 @@ public class JobConsole implements Runnable {
         if (job == null) {
             job = jet.getJob(jobConfig.getName());
             if (job != null) {
-                System.out.println("JOB IS GOT");
+                LOGGER.info("Job reference is fetched.");
             } else {
-                System.err.println("JOB NOT FOUND");
+                LOGGER.error("Job not found.");
             }
         } else {
-            System.err.println("JOB ALREADY GOT");
+            LOGGER.error("There is already a job reference.");
         }
     }
 
     private void queryJobStatus() {
         if (job != null) {
-            System.out.println("JOB STATUS: " + job.getStatus());
+            LOGGER.info("Jon status: " + job.getStatus());
         } else {
-            System.err.println("JOB NOT SUBMITTED");
+            LOGGER.error("There is no job reference.");
         }
     }
 
     private void cancelJob() {
         if (job != null) {
             if (job.cancel()) {
-                System.out.println("JOB IS CANCELLED.");
+                LOGGER.info("Job is cancelled.");
             } else {
-                System.err.println("JOB IS NOT CANCELLED.");
+                LOGGER.error("Job is not cancelled.");
             }
         } else {
-            System.err.println("JOB NOT SUBMITTED");
+            LOGGER.error("There is no job reference.");
         }
     }
 
     private void restartJob() {
         if (job != null) {
             if (job.restart()) {
-                System.out.println("JOB IS RESTARTING.");
+                LOGGER.info("Job is restarting.");
             } else {
-                System.err.println("JOB IS NOT RESTARTED.");
+                LOGGER.error("Job is not restarted.");
             }
         } else {
-            System.err.println("JOB NOT SUBMITTED");
+            LOGGER.error("There is no job reference.");
         }
     }
+
+    private void deleteJob() {
+        if (job != null) {
+            job = null;
+            LOGGER.info("Job reference is deleted.");
+        } else {
+            LOGGER.error("There is no job reference.");
+        }
+    }
+
 }
