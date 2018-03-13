@@ -24,7 +24,7 @@ public class JobConsole implements Runnable {
 
     private final Pipeline pipeline;
 
-    private volatile Job job;
+    private Job job;
 
     JobConsole(JetInstance jet, Pipeline pipeline, JobConfig jobConfig) {
         this.jet = jet;
