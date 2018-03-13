@@ -85,9 +85,9 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  *
  * The DAG used to model Flight Telemetry calculations can be seen below :
  *
- *                                                  ┌──────────────────┐
- *                                                  │Flight Data Source│
- *                                                  └─────────┬────────┘
+ *                                                ┌───────────────────────┐
+ *                                                │IMap Flight Data Source│
+ *                                                └─────────┬─────────────┘
  *                                                            │
  *                                                            v
  *                                           ┌─────────────────────────────────┐
@@ -174,7 +174,7 @@ public class FlightTelemetry {
 
         SlidingWindowDef slidingWindow = WindowDefinition.sliding(60_000, 30_000);
 
-        StreamSource<Entry<Long, Aircraft>> aircraftSource = Sources.mapJournal(SOURCE_MAP, START_FROM_OLDEST);
+        StreamSource<Entry<Long, Aircraft>> aircraftSource = Sources.mapJournal(SOURCE_MAP,  START_FROM_OLDEST);
 
         // Filter aircrafts whose altitude less then 3000ft, calculate linear trend of their altitudes
         // and assign vertical directions to the aircrafts.
