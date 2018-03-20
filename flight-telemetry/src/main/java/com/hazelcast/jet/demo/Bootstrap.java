@@ -4,9 +4,14 @@ import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.config.GroupConfig;
 import com.hazelcast.jet.Jet;
 import com.hazelcast.jet.JetInstance;
+import com.hazelcast.jet.Job;
 import com.hazelcast.jet.config.JetConfig;
+import com.hazelcast.jet.pipeline.Pipeline;
 
 import java.io.IOException;
+
+import static com.hazelcast.jet.demo.ReplayableFlightDataSource.buildJobConfig;
+import static com.hazelcast.jet.demo.FlightTelemetry.buildPipeline;
 
 public class Bootstrap {
 
@@ -17,28 +22,44 @@ public class Bootstrap {
     }
 
     public static void main(String[] args) throws IOException, InterruptedException {
-        switch (System.getProperty("type", "").trim().toLowerCase()) {
+        String type = System.getProperty("type", "default").trim().toLowerCase();
+        switch (type) {
+            case "default":
+                runFlightTelemetryJob();
+                break;
             case "server":
                 startJetServer();
                 break;
             case "client":
                 startJetClient();
                 break;
-            case "fetcher":
-                startFetcher();
+            case "source":
+                startSource();
                 break;
             default:
-                System.err.println("Missing system property: type=server|client|fetcher");
+                System.err.println("Invalid type: " + type + "available options: type=server|client|source");
+        }
+    }
+
+    private static void runFlightTelemetryJob() {
+        JetInstance jet = Jet.newJetInstance();
+        Pipeline p = buildPipeline(jet, FlightDataSource.streamAircraft(10000));
+
+        try {
+            Job job = jet.newJob(p);
+            job.join();
+        } finally {
+            Jet.shutdownAll();
         }
     }
 
     private static void startJetServer() {
-        JetConfig config = FlightTelemetry.buildJetConfig();
+        JetConfig config = ReplayableFlightDataSource.buildJetConfig();
         config.getHazelcastConfig().setGroupConfig(GROUP_CONFIG);
         JetInstance jet = Jet.newJetInstance(config);
 
         try {
-            JobConsole c = new JobConsole(jet, FlightTelemetry.buildPipeline(jet), FlightTelemetry.buildJobConfig());
+            JobConsole c = new JobConsole(jet, buildPipeline(jet, ReplayableFlightDataSource.buildSource()), buildJobConfig());
             c.run();
         } finally {
             jet.getHazelcastInstance().getLifecycleService().terminate();
@@ -51,14 +72,14 @@ public class Bootstrap {
         JetInstance jet = Jet.newJetClient(config);
 
         try {
-            JobConsole c = new JobConsole(jet, FlightTelemetry.buildPipeline(jet), FlightTelemetry.buildJobConfig());
+            JobConsole c = new JobConsole(jet, buildPipeline(jet, ReplayableFlightDataSource.buildSource()), buildJobConfig());
             c.run();
         } finally {
             jet.getHazelcastInstance().getLifecycleService().terminate();
         }
     }
 
-    private static void startFetcher() throws IOException, InterruptedException {
+    private static void startSource() throws IOException, InterruptedException {
         ClientConfig config = new ClientConfig();
         config.setGroupConfig(GROUP_CONFIG);
         JetInstance jet = Jet.newJetClient(config);

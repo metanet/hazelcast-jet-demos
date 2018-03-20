@@ -37,7 +37,7 @@ public class JobConsole implements Runnable {
 
     @Override
     public void run() {
-        LOGGER.info("Job console has started.");
+        LOGGER.info("Job console has started. Type \"help\" to see available commands...");
         String command;
         while ((command = readCommand()) != null) {
             switch (command) {
@@ -56,14 +56,23 @@ public class JobConsole implements Runnable {
                 case "restart":
                     restartJob();
                     break;
-                case "delete":
+                case "reset":
                     deleteJob();
+                    break;
+                case "help":
+                    LOGGER.info("Available commands:");
+                    LOGGER.info("submit: submits the job to the cluster");
+                    LOGGER.info("get: gets a reference to the job which is submitted by some other node");
+                    LOGGER.info("status: queries status of the job");
+                    LOGGER.info("cancel: cancels the job");
+                    LOGGER.info("restart: restarts the job");
+                    LOGGER.info("reset: deletes current job reference");
                     break;
                 case "":
                     break;
                 default:
                     LOGGER.error("INVALID COMMAND: " + command
-                            + ". VALID COMMANDS: submit|get|status|cancel|restart|delete");
+                            + ". VALID COMMANDS: help|submit|get|status|cancel|restart|reset");
             }
         }
     }
@@ -80,8 +89,9 @@ public class JobConsole implements Runnable {
     private void submitJob() {
         if (job == null) {
             job = jet.newJob(pipeline, jobConfig);
+            LOGGER.info("Job[" + job.getId() + "] has been submitted.");
         } else {
-            LOGGER.error("There is already a job reference.");
+            LOGGER.error("There is already a reference for Job[" + job.getId() + "].");
         }
     }
 
@@ -89,18 +99,18 @@ public class JobConsole implements Runnable {
         if (job == null) {
             job = jet.getJob(jobConfig.getName());
             if (job != null) {
-                LOGGER.info("Job reference is fetched.");
+                LOGGER.info("Job[" + job.getId() + "] reference has been fetched.");
             } else {
                 LOGGER.error("Job not found.");
             }
         } else {
-            LOGGER.error("There is already a job reference.");
+            LOGGER.error("There is already a reference for Job[" + job.getId() + "].");
         }
     }
 
     private void queryJobStatus() {
         if (job != null) {
-            LOGGER.info("Jon status: " + job.getStatus());
+            LOGGER.info("Job[" + job.getId() + "] status: " + job.getStatus());
         } else {
             LOGGER.error("There is no job reference.");
         }
@@ -109,9 +119,9 @@ public class JobConsole implements Runnable {
     private void cancelJob() {
         if (job != null) {
             if (job.cancel()) {
-                LOGGER.info("Job is cancelled.");
+                LOGGER.info("Job[" + job.getId() + "] has been cancelled.");
             } else {
-                LOGGER.error("Job is not cancelled.");
+                LOGGER.error("Job[" + job.getId() + "] not cancelled. It is " + job.getStatus());
             }
         } else {
             LOGGER.error("There is no job reference.");
@@ -121,9 +131,9 @@ public class JobConsole implements Runnable {
     private void restartJob() {
         if (job != null) {
             if (job.restart()) {
-                LOGGER.info("Job is restarting.");
+                LOGGER.info("Job[" + job.getId() + "] is restarting.");
             } else {
-                LOGGER.error("Job is not restarted.");
+                LOGGER.error("Job[" + job.getId() + "] is not restarted.");
             }
         } else {
             LOGGER.error("There is no job reference.");
@@ -132,8 +142,8 @@ public class JobConsole implements Runnable {
 
     private void deleteJob() {
         if (job != null) {
+            LOGGER.info("Job[" + job.getId() + "] reference is reset.");
             job = null;
-            LOGGER.info("Job reference is deleted.");
         } else {
             LOGGER.error("There is no job reference.");
         }

@@ -26,7 +26,7 @@ import static java.util.stream.Collectors.toList;
  * Polls the <a href="https://www.adsbexchange.com">ADS-B Exchange</a> HTTP API
  * for flight data. The API will be polled every {@code pollIntervalMillis} milliseconds.
  * <p>
- * Fetched aircraft are put into the {@link FlightTelemetry#SOURCE_MAP} IMap
+ * Fetched aircraft are put into the {@link ReplayableFlightDataSource#SOURCE_MAP} IMap
  */
 public class FetchAircraft {
 
@@ -39,17 +39,21 @@ public class FetchAircraft {
 
     FetchAircraft(JetInstance instance) throws MalformedURLException {
         this.url = new URL(SOURCE_URL);
-        this.sink = instance.getMap(FlightTelemetry.SOURCE_MAP);
+        this.sink = instance.getMap(ReplayableFlightDataSource.SOURCE_MAP);
     }
 
     public void run() throws IOException, InterruptedException {
         while (true) {
-            fetchAirCrafts();
+            List<Aircraft> aircrafts = poll(url, idToTimestamp);
+            aircrafts.forEach(a -> sink.put(a.getId(), a));
+
+            LOGGER.info("Polled " + aircrafts.size() + " new locations. map size: " + sink.size());
+
             Thread.sleep(TimeUnit.SECONDS.toMillis(10));
         }
     }
 
-    private void fetchAirCrafts() throws IOException {
+    static List<Aircraft> poll(URL url, Map<Long, Long> idToTimestamp) throws IOException {
         HttpsURLConnection con = (HttpsURLConnection) url.openConnection();
         con.setRequestMethod("GET");
         con.addRequestProperty("User-Agent", "Mozilla / 5.0 (Windows NT 6.1; WOW64) AppleWebKit / 537.36 (KHTML, like Gecko) Chrome / 40.0.2214.91 Safari / 537.36");
@@ -68,31 +72,25 @@ public class FetchAircraft {
         JsonObject object = value.asObject();
         JsonArray acList = object.get("acList").asArray();
 
-        List<Aircraft> newEvents =
-                acList.values().stream()
-                        .map(this::parseAc)
-                        .filter(a -> !isNullOrEmpty(a.getReg())) // there should be a reg number
-                        .filter(a -> a.getPosTime() > 0) // there should be a timestamp
-                        .filter(a -> {
-                            // only emit updated newEvents
-                            Long newTs = a.getPosTime();
-                            if (newTs <= 0) {
-                                return false;
-                            }
-                            Long oldTs = idToTimestamp.get(a.getId());
-                            if (oldTs != null && newTs <= oldTs) {
-                                return false;
-                            }
-                            idToTimestamp.put(a.getId(), newTs);
-                            return true;
-                        }).collect(toList());
-
-        newEvents.forEach(a -> sink.put(a.getId(), a));
-
-        LOGGER.info("Polled " + acList.size() + " aircraft, " + newEvents.size() + " new locations. map size: " + sink.size());
+        return acList.values().stream()
+                .map(FetchAircraft::parseAc)
+                .filter(a -> !isNullOrEmpty(a.getReg())) // there should be a reg number
+                .filter(a -> a.getPosTime() > 0) // there should be a timestamp
+                .filter(a -> { // only emit updated newEvents
+                    Long newTs = a.getPosTime();
+                    if (newTs <= 0) {
+                        return false;
+                    }
+                    Long oldTs = idToTimestamp.get(a.getId());
+                    if (oldTs != null && newTs <= oldTs) {
+                        return false;
+                    }
+                    idToTimestamp.put(a.getId(), newTs);
+                    return true;
+                }).collect(toList());
     }
 
-    private Aircraft parseAc(JsonValue ac) {
+    private static Aircraft parseAc(JsonValue ac) {
         Aircraft aircraft = new Aircraft();
         aircraft.fromJson(ac.asObject());
         return aircraft;

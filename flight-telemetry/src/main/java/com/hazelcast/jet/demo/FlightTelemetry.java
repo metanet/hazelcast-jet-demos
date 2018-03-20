@@ -1,11 +1,7 @@
 package com.hazelcast.jet.demo;
 
-import com.hazelcast.config.MaxSizeConfig;
 import com.hazelcast.jet.IMapJet;
 import com.hazelcast.jet.JetInstance;
-import com.hazelcast.jet.config.JetConfig;
-import com.hazelcast.jet.config.JobConfig;
-import com.hazelcast.jet.config.ProcessingGuarantee;
 import com.hazelcast.jet.datamodel.TimestampedEntry;
 import com.hazelcast.jet.demo.Aircraft.VerticalDirection;
 import com.hazelcast.jet.demo.types.WakeTurbulanceCategory;
@@ -13,7 +9,6 @@ import com.hazelcast.jet.pipeline.Pipeline;
 import com.hazelcast.jet.pipeline.Sink;
 import com.hazelcast.jet.pipeline.Sinks;
 import com.hazelcast.jet.pipeline.SlidingWindowDef;
-import com.hazelcast.jet.pipeline.Sources;
 import com.hazelcast.jet.pipeline.StreamSource;
 import com.hazelcast.jet.pipeline.StreamStage;
 import com.hazelcast.jet.pipeline.WindowDefinition;
@@ -59,7 +54,6 @@ import static com.hazelcast.jet.demo.util.Util.inTokyo;
 import static com.hazelcast.jet.function.DistributedComparator.comparingInt;
 import static com.hazelcast.jet.impl.util.Util.uncheckCall;
 import static com.hazelcast.jet.impl.util.Util.uncheckRun;
-import static com.hazelcast.jet.pipeline.JournalInitialPosition.START_FROM_OLDEST;
 import static java.util.Collections.emptySortedMap;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -85,9 +79,9 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  *
  * The DAG used to model Flight Telemetry calculations can be seen below :
  *
- *                                                ┌───────────────────────┐
- *                                                │IMap Flight Data Source│
- *                                                └─────────┬─────────────┘
+ *                                                  ┌──────────────────┐
+ *                                                  │Flight Data Source│
+ *                                                  └─────────┬────────┘
  *                                                            │
  *                                                            v
  *                                           ┌─────────────────────────────────┐
@@ -141,46 +135,20 @@ import static java.util.concurrent.TimeUnit.SECONDS;
  */
 public class FlightTelemetry {
 
-    static final String SOURCE_MAP = "aircraftMovements";
     private static final String TAKE_OFF_MAP = "takeOffMap";
     private static final String LANDING_MAP = "landingMap";
-    private static final String JOB_NAME = "flightTelemetry";
-
-    public static JetConfig buildJetConfig() {
-        JetConfig config = new JetConfig();
-        config.getHazelcastConfig()
-                .getMapEventJournalConfig(FlightTelemetry.SOURCE_MAP)
-                .setCapacity(100_000)
-                .setEnabled(true);
-
-        MaxSizeConfig maxSizeConfig = config.getHazelcastConfig().getMapConfig(SOURCE_MAP).getMaxSizeConfig();
-        maxSizeConfig.setSize(10000).setMaxSizePolicy(MaxSizeConfig.MaxSizePolicy.PER_NODE);
-
-        return config;
-    }
-
-    public static JobConfig buildJobConfig() {
-        JobConfig config = new JobConfig();
-        config.setName(JOB_NAME).setProcessingGuarantee(ProcessingGuarantee.EXACTLY_ONCE);
-
-        return config;
-    }
 
     /**
      * Builds and returns the Pipeline which represents the actual computation.
      */
-    public static Pipeline buildPipeline(JetInstance jet) {
+    static Pipeline buildPipeline(JetInstance jet, StreamSource<Aircraft> streamSource) {
         Pipeline p = Pipeline.create();
 
         SlidingWindowDef slidingWindow = WindowDefinition.sliding(60_000, 30_000);
-
-        StreamSource<Entry<Long, Aircraft>> aircraftSource = Sources.mapJournal(SOURCE_MAP,  START_FROM_OLDEST);
-
         // Filter aircrafts whose altitude less then 3000ft, calculate linear trend of their altitudes
         // and assign vertical directions to the aircrafts.
-        StreamStage<TimestampedEntry<Long, Aircraft>> flights = p
-                .drawFrom(aircraftSource)
-                .map(Entry::getValue)
+
+        StreamStage<TimestampedEntry<Long, Aircraft>> flights = p.drawFrom(streamSource)
                 .filter(a -> !a.isGnd() && a.getAlt() > 0 && a.getAlt() < 3000)
                 .map(FlightTelemetry::assignAirport)
                 .addTimestamps(Aircraft::getPosTime, SECONDS.toMillis(15))
